@@ -1,9 +1,14 @@
 mod mixtape;
 
 fn main() {
-    let _input_file = std::env::args().nth(1).expect("No input file given");
-    let _change_file = std::env::args().nth(2).expect("No change file found");
-    let _output_file = std::env::args().nth(3).expect("No ouput file param found");
+    let _input_file = std::env::args().nth(1)
+        .expect(&show_usage("No input file given"));
+    
+    let _change_file = std::env::args().nth(2)
+        .expect(&show_usage("No change file found"));
+    
+    let _output_file = std::env::args().nth(3)
+        .expect(&show_usage("No ouput file param found"));
 
     let params: mixtape::MixtapeParams = mixtape::MixtapeParams {
         input_file: _input_file,
@@ -16,5 +21,6 @@ fn main() {
     println!("[x] Wrote changes.");
 }
 
-fn arg_get(arg: u8, error: String) {
+fn show_usage(error: &str) -> String {
+    format!("Usage: <input file> <change file> <output file>\n{}",error)
 }

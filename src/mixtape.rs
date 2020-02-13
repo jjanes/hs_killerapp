@@ -4,29 +4,6 @@ use serde_json::{Value};
 use std::fs::{File};
 use std::io::Write;
 
-pub fn update(params: MixtapeParams) { 
-    let input_contents = import_data_file(params.input_file);
-    let input_json: serde_json::Value = string_to_json(input_contents);
-
-    let mut input: InputObject = json_to_rust(input_json);
-
-    input.users[0].name = "test".to_string();
-
-    
-    let change_contents = import_data_file(params.change_file);
-    let change_json: serde_json::Value = string_to_json(change_contents);
-    
-    let mut changes: ChangeObject = serde_json::from_value(change_json).unwrap();
-
-    changes.apply(&input);
-
-
-
-    let j = serde_json::to_string_pretty(&input).unwrap();
-
-    write_output(j,params.output_file);
-}
-
 pub struct MixtapeParams {
     pub input_file: String,
     pub change_file: String,
@@ -44,28 +21,6 @@ struct ChangeOperationObject {
     user_id: Option<String>,
     song_id: Option<String>,
     playlist_id: Option<String>
-}
-
-impl ChangeObject {
-    fn apply(&self, input: &InputObject) {
-        for change in &self.changes { 
-            change.apply(input);
-        }
-    }
-}
-
-impl ChangeOperationObject {
-    fn apply(&self, input: &InputObject) {
-        match self.operation.as_str() {
-            "playlist_add_song" => {
-            },
-            "playlist_delete" => {
-            },
-            "playlist_create" => {
-            },
-            _ => panic!("Unknown change operation: {} ", self.operation.as_str())
-        }
-    }
 }
 
 
@@ -96,22 +51,47 @@ struct PlaylistObject {
     song_ids: Vec<String>
 }
 
+impl PlaylistObject {
+    fn song_add(&mut self,song_ids: Vec<&String>) {
+        for song_id in song_ids {
+            &self.song_ids.push(song_id.to_string());
+        }
+    }
+}
+
 impl InputObject {
-    fn playlist_del(&mut self, id: String) {
+    fn playlist_del(&mut self, id: String) -> Result<(),&str> {
         self.playlists.retain(|i| i.id != id);
+
+        Ok(())
     }
 
-    fn playlist_song_add(&mut self, playlist_id: String, song_id: String) {
+    fn playlist_song_add(&mut self, playlist_id: String, song_id: String) -> Result<(),&str> {
+        if self.songs_find(vec![&song_id]).len() != 1 {
+            return Err("could not find exisiting song");
+        }
 
+        let playlist_index = self.playlists.iter().position(|x| x.id == playlist_id);
 
+        match playlist_index {
+            None => return Err("could not find playlist"),
+            Some(index) => {
+                &self.playlists[index].song_add(vec![&song_id]);
+            }
+        };
+
+        Ok(())
     }
     
-    fn playlist_create(&mut self, user_id: String, song_ids: Vec<String>) 
-        -> Option<&PlaylistObject> {
+    fn playlist_create(&mut self, user_id: String, song_ids: Vec<String>) -> Result<(),&str> { 
         let uid = user_id.to_string(); 
 
+        for song_id in self.song_get_ids() {
+        
+        }
+
         if self.users_find(vec![uid]).len() != 1 {
-            return None;
+            return Err("could not find user");
         }
 
         self.playlists.push(PlaylistObject {
@@ -120,13 +100,13 @@ impl InputObject {
             song_ids: song_ids
         });
 
-        self.playlists.last()
+        Ok(())
     }
 
-    fn songs_find(&mut self, song_ids: Vec<String>) -> Vec<&SongObject> {
+    fn songs_find(&mut self, song_ids: Vec<&String>) -> Vec<&SongObject> {
         let mut songs: Vec<&SongObject> = Vec::new();
         for song in self.songs.iter() {
-            if song_ids.contains(&song.id) {
+            if song_ids.contains(&&song.id) {
                 songs.push(&song);
             }
         }
@@ -143,22 +123,49 @@ impl InputObject {
         users
     }
 
-    fn plalist_find(&mut self, playlist_id: String, song_id: String) -> Option<&PlaylistObject> {
-
-        None
-    }
-
     fn playlist_next_id(&self) -> String {
-        let mut next_id: u32 = 0;
-        for song in self.songs.iter() {
-            let id: u32 = song.id.clone().parse().unwrap();
-            if id > next_id {
-                next_id = id
+        let next_id = match self.playlists.iter().max_by_key(|p| &p.id) {
+            None => 1,
+            Some(x) => { 
+                let id: u32 = x.id.as_str().parse::<u32>().unwrap();
+                (id + 1)
             }
-        }
+        };
 
-        (next_id + 1).to_string()
+        next_id.to_string()
     }
+
+    fn song_get_ids(&self) -> Vec<&String> {
+        let mut song_ids: Vec<&String> = Vec::new();
+        for song in self.songs.iter() {
+            song_ids.push(&song.id);
+        }
+        song_ids
+    }
+}
+
+
+pub fn update(params: MixtapeParams) { 
+    let input_contents = import_data_file(params.input_file);
+    let input_json: serde_json::Value = string_to_json(input_contents);
+
+    // convert json string to mutable rust struct
+    let input: &mut InputObject = &mut json_to_rust(input_json);
+
+    let change_contents = import_data_file(params.change_file);
+    let change_json: serde_json::Value = string_to_json(change_contents);
+
+    // serialize changes to rust 
+    let changes: ChangeObject = serde_json::from_value(change_json).unwrap();
+
+    // apply changes to the serailized rust struct
+    apply_changes(input,changes); 
+    
+    // deserialize rust struct
+    let j = serde_json::to_string_pretty(&input).unwrap();
+
+    // write output to json file
+    write_output(j,params.output_file);
 }
 
 fn import_data_file(file_name: String) -> String {
@@ -185,7 +192,61 @@ fn write_output(json_string: String, output_file: String) {
     let mut file = File::create(output_file)
         .expect("unable to create ouput file");
 
-    file.write_all(json_string.as_bytes());
+    if let Err(e) = file.write_all(json_string.as_bytes()) {
+        panic!("Could not write to output file {} ",e);
+    }
+}
+
+fn apply_changes(input: &mut InputObject, changes: ChangeObject) {
+    for change in changes.changes.iter() {
+        match change.operation.as_str() {
+            "playlist_add_song" => {
+                let playlist_id = match change.playlist_id {
+                    None => panic!("Did provide playlist_id in playlist_add_song operation."),
+                    _ => change.playlist_id.as_deref().unwrap().to_string()
+                };
+
+                let song_id = match change.song_id {
+                    None => panic!("Did provide song_id in playlist_add_song operation."),
+                    _ =>  change.song_id.as_deref().unwrap().to_string()
+                };
+                if let Err(e) = input.playlist_song_add(playlist_id, song_id) {
+                    panic!("Could not add song to playlist: {}", e)
+                }
+            },
+            "playlist_delete" => {
+                let playlist_id = match change.playlist_id {
+                    None => panic!("Did provide playlist_id in playlist_delete operation."),
+                    _ =>  change.playlist_id.as_deref().unwrap().to_string()
+                };
+
+                if let Err(e) = input.playlist_del(playlist_id) {
+                    panic!("{}", e)
+                }
+            },
+            "playlist_create" => {
+                let playlist_id = match change.playlist_id {
+                    None => panic!("Did provide playlist_id in playlist_create operation."),
+                    _ => change.playlist_id.as_deref().unwrap().to_string()
+                };
+
+                let song_id = match change.song_id {
+                    None => panic!("Did provide song_id in playlist_create operation."),
+                    _ =>  change.song_id.as_deref().unwrap().to_string()
+                };
+            
+                let user_id = match change.user_id {
+                    None => panic!("Did provide song_id in playlist_create operation."),
+                    _ => change.user_id.as_deref().unwrap().to_string()
+                };
+              
+                if let Err(e) = input.playlist_create(user_id,vec![song_id]) {
+                    panic!("{}",e);
+                }
+            },
+            _ => panic!("Unknown change operation: {} ", change.operation.as_str())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -235,13 +296,14 @@ mod tests {
 
         input.playlist_del("1".to_string());
 
+
         assert_eq!(input.playlists[0].id,"2".to_string());
     }
 
     #[test]
     fn test_next_playlist_id() {
         let json: serde_json::Value = string_to_json(test_json());
-        let mut input: InputObject = json_to_rust(json);
+        let input: InputObject = json_to_rust(json);
 
         assert_eq!(input.playlist_next_id(),"3".to_string());
     }
@@ -271,7 +333,7 @@ mod tests {
         let json: serde_json::Value = string_to_json(test_json());
         let mut input: InputObject = json_to_rust(json);
 
-        let songs = input.songs_find(vec!["1".to_string()]);
+        let songs = input.songs_find(vec![&"1".to_string()]);
 
         assert_eq!(songs.len(),1);
     }
@@ -281,7 +343,7 @@ mod tests {
         let json: serde_json::Value = string_to_json(test_json());
         let mut input: InputObject = json_to_rust(json);
 
-        let songs = input.songs_find(vec!["5".to_string()]);
+        let songs = input.songs_find(vec![&"5".to_string()]);
 
         assert_eq!(songs.len(),0);
     }

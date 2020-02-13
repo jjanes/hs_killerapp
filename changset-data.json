@@ -2,11 +2,12 @@
   "changes": [
     {
       "operation": "playlist_add_song",
-      "playlist_id": "1",
+      "playlist_id": "2",
       "song_id": "2"
     },
     {
-      "operation": "playlist_delete"
+      "operation": "playlist_delete",
+      "playlist_id": "1"
     }
   ]
 }
