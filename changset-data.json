@@ -8,6 +8,11 @@
     {
       "operation": "playlist_delete",
       "playlist_id": "1"
+    }, 
+    {
+      "operation": "playlist_create",
+      "user_id": "1",
+      "song_id": "40"
     }
   ]
 }

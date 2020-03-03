@@ -86,8 +86,12 @@ impl InputObject {
     fn playlist_create(&mut self, user_id: String, song_ids: Vec<String>) -> Result<(),&str> { 
         let uid = user_id.to_string(); 
 
-        for song_id in self.song_get_ids() {
-        
+        let current_songs = self.get_song_ids();
+
+        for song_id in &song_ids {
+            if current_songs.contains(&song_id.as_str()) == false {
+                panic!("Song id {} does not exists.",&song_id);
+            }
         }
 
         if self.users_find(vec![uid]).len() != 1 {
@@ -135,12 +139,8 @@ impl InputObject {
         next_id.to_string()
     }
 
-    fn song_get_ids(&self) -> Vec<&String> {
-        let mut song_ids: Vec<&String> = Vec::new();
-        for song in self.songs.iter() {
-            song_ids.push(&song.id);
-        }
-        song_ids
+    fn get_song_ids(&self) -> Vec<&str> {
+        self.songs.iter().map(|x| x.id.as_str() ).collect::<Vec<&str>>()
     }
 }
 
@@ -177,12 +177,6 @@ fn string_to_json(json_string: String) -> Value {
     serde_json::from_str(&json_string)
         .expect("JSON was not well-formatted")
 }
-
-
-fn import_playlist(json: serde_json::Value) {
-    println!("TEST:\n{}", json)
-}
-
 
 fn json_to_rust(json: Value) -> InputObject {
     serde_json::from_value(json).unwrap()
@@ -225,11 +219,6 @@ fn apply_changes(input: &mut InputObject, changes: ChangeObject) {
                 }
             },
             "playlist_create" => {
-                let playlist_id = match change.playlist_id {
-                    None => panic!("Did provide playlist_id in playlist_create operation."),
-                    _ => change.playlist_id.as_deref().unwrap().to_string()
-                };
-
                 let song_id = match change.song_id {
                     None => panic!("Did provide song_id in playlist_create operation."),
                     _ =>  change.song_id.as_deref().unwrap().to_string()
